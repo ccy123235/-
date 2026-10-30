@@ -3,230 +3,239 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>贪吃蛇 - 丝滑版</title>
+    <title>奇妙动物园</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; touch-action: none; }
         body {
-            background: #1a1a2e; color: #fff; font-family: Arial, sans-serif;
-            display: flex; flex-direction: column; align-items: center;
-            justify-content: center; min-height: 100vh; padding: 12px;
+            background: #2d4a22; color: #fff; font-family: Arial, sans-serif;
+            display: flex; flex-direction: column; height: 100vh; overflow: hidden;
             user-select: none; -webkit-user-select: none;
         }
-        .score { font-size: 22px; margin-bottom: 10px; color: #4cc9f0; font-weight: bold; }
+        .top-bar {
+            background: #1e3316; padding: 10px; display: flex; justify-content: space-around;
+            font-size: 16px; font-weight: bold; border-bottom: 2px solid #3d632e;
+        }
+        .top-bar div span { color: #ffd700; }
         canvas {
-            background: #0c0c1a; border: 2px solid #4cc9f0; border-radius: 8px;
-            display: block; width: 92vw; max-width: 420px; height: auto;
-            /* 增加阴影让画面有立体感 */
-            box-shadow: 0 0 20px rgba(76, 201, 240, 0.2);
+            flex: 1; background: #6ab04c; display: block; width: 100%; height: 100%;
+            touch-action: none;
         }
-        .controls {
-            display: grid; grid-template-columns: 60px 60px 60px;
-            gap: 8px; margin-top: 18px; justify-content: center;
+        .bottom-bar {
+            background: #1e3316; padding: 15px; display: flex; gap: 10px; justify-content: center;
+            border-top: 2px solid #3d632e;
         }
-        .controls button {
-            background: #0f3460; color: #4cc9f0; border: 1px solid #4cc9f0;
-            border-radius: 10px; font-size: 22px; padding: 14px 0;
-            font-weight: bold; cursor: pointer;
+        button {
+            background: #f0932b; color: #fff; border: none; border-radius: 8px;
+            padding: 10px 15px; font-size: 14px; font-weight: bold; cursor: pointer;
+            box-shadow: 0 4px 0 #b36b1a; flex: 1; max-width: 120px;
+            transition: transform 0.1s, box-shadow 0.1s;
         }
-        .controls button:active { background: #4cc9f0; color: #16213e; }
-        .controls .up    { grid-column: 2; }
-        .controls .left  { grid-column: 1; grid-row: 2; }
-        .controls .down  { grid-column: 2; grid-row: 2; }
-        .controls .right { grid-column: 3; grid-row: 2; }
-        .hint { font-size: 13px; color: #888; margin-top: 12px; text-align: center; }
+        button:active { transform: translateY(4px); box-shadow: 0 0 0 #b36b1a; }
+        button:disabled { background: #555; box-shadow: 0 4px 0 #333; color: #aaa; }
+        .buy-btn.tiger { background: #e67e22; box-shadow: 0 4px 0 #a85a15; }
+        .buy-btn.panda { background: #9b59b6; box-shadow: 0 4px 0 #6c3d80; }
     </style>
 </head>
 <body>
-    <div class="score">得分：<span id="score">0</span></div>
-    <canvas id="game" width="400" height="400"></canvas>
-
-    <div class="controls">
-        <button class="up"    onclick="setDir(0,-1)">▲</button>
-        <button class="left"  onclick="setDir(-1,0)">◀</button>
-        <button class="down"  onclick="setDir(0,1)">▼</button>
-        <button class="right" onclick="setDir(1,0)">▶</button>
+    <div class="top-bar">
+        <div>💰 金币: <span id="coins">0</span></div>
+        <div>🎫 门票: <span id="ticket">10</span></div>
     </div>
-    <div class="hint">滑动屏幕控制方向</div>
+    <canvas id="game"></canvas>
+    <div class="bottom-bar">
+        <button id="btn-rabbit" onclick="buyAnimal('rabbit')">买兔子(50)</button>
+        <button id="btn-tiger" class="buy-btn tiger" onclick="buyAnimal('tiger')">买老虎(200)</button>
+        <button id="btn-panda" class="buy-btn panda" onclick="buyAnimal('panda')">买熊猫(1000)</button>
+    </div>
 
 <script>
     const canvas = document.getElementById('game');
     const ctx = canvas.getContext('2d');
-    const scoreEl = document.getElementById('score');
+    const coinsEl = document.getElementById('coins');
+    const ticketEl = document.getElementById('ticket');
 
-    const GRID = 20; 
-    const CELL = canvas.width / GRID;
-    
-    // 游戏状态变量
-    let snake, food, dir, nextDir, score, gameOver;
-    let lastMoveTime = 0;
-    const MOVE_INTERVAL = 120; // 蛇移动一格所需的时间(毫秒)，越小越快
-    let progress = 0; // 用于计算平滑移动的进度
+    // 画布自适应大小
+    function resize() {
+        canvas.width = canvas.clientWidth;
+        canvas.height = canvas.clientHeight;
+    }
+    window.addEventListener('resize', resize);
+    resize();
 
-    function init() {
-        snake = [{x: 10, y: 10}, {x: 9, y: 10}, {x: 8, y: 10}];
-        dir = {x: 1, y: 0};
-        nextDir = {x: 1, y: 0};
-        score = 0;
-        gameOver = false;
-        scoreEl.textContent = '0';
-        placeFood();
-        lastMoveTime = performance.now();
-        progress = 0;
-        requestAnimationFrame(gameLoop);
+    // 游戏状态
+    let gameData = {
+        coins: 0,
+        baseTicket: 10,
+        animals: [], // {x, y, type, emoji, attract}
+        trash: [],   // {x, y}
+        floatTexts: [] // {x, y, text, color, alpha, vy}
+    };
+
+    // 动物配置
+    const animalTypes = {
+        rabbit: { price: 50, emoji: '🐰', attract: 5, color: '#fff' },
+        tiger:  { price: 200, emoji: '🐯', attract: 20, color: '#e67e22' },
+        panda:  { price: 1000, emoji: '🐼', attract: 100, color: '#9b59b6' }
+    };
+
+    // 更新门票价格
+    function updateTicketPrice() {
+        let totalAttract = gameData.animals.reduce((sum, a) => sum + a.attract, 0);
+        let newTicket = gameData.baseTicket + Math.floor(totalAttract * 1.5);
+        
+        // 垃圾超过10个，环境恶化，票价减半
+        if (gameData.trash.length > 10) {
+            newTicket = Math.floor(newTicket * 0.5);
+        }
+        ticketEl.innerText = newTicket;
+        return newTicket;
     }
 
-    function placeFood() {
-        while (true) {
-            const fx = Math.floor(Math.random() * GRID);
-            const fy = Math.floor(Math.random() * GRID);
-            if (!snake.some(s => s.x === fx && s.y === fy)) {
-                food = {x: fx, y: fy};
+    // 购买动物
+    function buyAnimal(type) {
+        const config = animalTypes[type];
+        if (gameData.coins >= config.price) {
+            gameData.coins -= config.price;
+            gameData.animals.push({
+                x: Math.random() * (canvas.width - 60) + 30,
+                y: Math.random() * (canvas.height - 60) + 30,
+                emoji: config.emoji,
+                attract: config.attract
+            });
+            updateCoins();
+            updateTicketPrice();
+            
+            // 买动物时有飘字
+            addFloatText(canvas.width/2, canvas.height/2, `新动物入住!`, config.color);
+        } else {
+            addFloatText(canvas.width/2, canvas.height/2, `金币不足!`, '#ff4757');
+        }
+    }
+
+    function updateCoins() {
+        coinsEl.innerText = gameData.coins;
+        // 更新按钮状态
+        document.getElementById('btn-rabbit').disabled = gameData.coins < 50;
+        document.getElementById('btn-tiger').disabled = gameData.coins < 200;
+        document.getElementById('btn-panda').disabled = gameData.coins < 1000;
+    }
+
+    // 添加飘字特效
+    function addFloatText(x, y, text, color = '#ffd700') {
+        gameData.floatTexts.push({ x, y, text, color, alpha: 1, vy: -1 });
+    }
+
+    // 生成垃圾
+    function spawnTrash() {
+        if (gameData.trash.length < 20) {
+            gameData.trash.push({
+                x: Math.random() * (canvas.width - 40) + 20,
+                y: Math.random() * (canvas.height - 40) + 20,
+                emoji: ['💩', '🍌', '🗑️'][Math.floor(Math.random()*3)]
+            });
+            updateTicketPrice(); // 垃圾多了票价可能下降
+        }
+    }
+
+    // 定时收入（游客买票）
+    setInterval(() => {
+        if (gameData.trash.length <= 10 && gameData.animals.length > 0) {
+            let income = updateTicketPrice();
+            gameData.coins += income;
+            updateCoins();
+            // 随机位置飘金币
+            addFloatText(canvas.width / 2 + (Math.random()-0.5)*100, 50, `+${income} 金币`, '#ffd700');
+        }
+    }, 2000); // 每2秒收一次门票
+
+    // 定时生成垃圾
+    setInterval(spawnTrash, 3000);
+    // 初始给几个垃圾
+    spawnTrash(); spawnTrash(); spawnTrash();
+
+    // 点击事件处理
+    canvas.addEventListener('touchstart', handleInput, {passive: false});
+    canvas.addEventListener('mousedown', handleInput);
+
+    function handleInput(e) {
+        e.preventDefault();
+        const rect = canvas.getBoundingClientRect();
+        let clientX = e.clientX;
+        let clientY = e.clientY;
+        if (e.touches && e.touches.length > 0) {
+            clientX = e.touches[0].clientX;
+            clientY = e.touches[0].clientY;
+        }
+        
+        const clickX = clientX - rect.left;
+        const clickY = clientY - rect.top;
+
+        // 检测是否点中垃圾
+        for (let i = gameData.trash.length - 1; i >= 0; i--) {
+            let t = gameData.trash[i];
+            let dist = Math.hypot(clickX - t.x, clickY - t.y);
+            if (dist < 25) { // 点击判定范围
+                gameData.trash.splice(i, 1);
+                let reward = 5;
+                gameData.coins += reward;
+                updateCoins();
+                addFloatText(t.x, t.y, `+${reward}`, '#fff');
+                updateTicketPrice();
                 break;
             }
         }
     }
 
-    function setDir(x, y) {
-        // 防止原地掉头
-        if (x === -dir.x && y === -dir.y) return;
-        nextDir = {x, y};
-    }
-
-    function update() {
-        if (gameOver) return;
-        
-        dir = nextDir;
-        const head = {x: snake[0].x + dir.x, y: snake[0].y + dir.y};
-
-        // 碰撞检测
-        if (
-            head.x < 0 || head.x >= GRID ||
-            head.y < 0 || head.y >= GRID ||
-            snake.some(s => s.x === head.x && s.y === head.y)
-        ) {
-            gameOver = true;
-            setTimeout(() => {
-                alert('游戏结束！得分：' + score);
-                init();
-            }, 50);
-            return;
-        }
-
-        snake.unshift(head);
-
-        if (head.x === food.x && head.y === food.y) {
-            score++;
-            scoreEl.textContent = score;
-            placeFood();
-        } else {
-            snake.pop();
-        }
-    }
-
-    // 核心渲染循环：这就是实现丝滑的关键
-    function gameLoop(currentTime) {
-        if (!gameOver) {
-            // 计算距离上次移动过去了多少时间
-            const elapsed = currentTime - lastMoveTime;
-            // 计算进度（0 到 1 之间）
-            progress = Math.min(elapsed / MOVE_INTERVAL, 1);
-
-            // 如果时间到了，就更新数据（蛇往前走一格）
-            if (progress >= 1) {
-                update();
-                lastMoveTime = currentTime;
-                progress = 0;
-            }
-        }
-
-        draw();
-        
-        // 只要没结束，就一直以每秒60帧的速率重绘
-        if (!gameOver) {
-            requestAnimationFrame(gameLoop);
-        }
-    }
-
+    // 渲染循环
     function draw() {
-        ctx.fillStyle = '#0c0c1a';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        // 绘制食物（带一点呼吸动画）
-        const scale = 1 + Math.sin(Date.now() / 200) * 0.1;
-        ctx.fillStyle = '#e94560';
-        ctx.beginPath();
-        ctx.arc(food.x * CELL + CELL/2, food.y * CELL + CELL/2, (CELL/2 - 2) * scale, 0, Math.PI * 2);
-        ctx.fill();
+        // 画草地格子纹理
+        ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+        ctx.lineWidth = 1;
+        for(let i=0; i<canvas.width; i+=40) {
+            ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, canvas.height); ctx.stroke();
+        }
+        for(let j=0; j<canvas.height; j+=40) {
+            ctx.beginPath(); ctx.moveTo(0, j); ctx.lineTo(canvas.width, j); ctx.stroke();
+        }
 
-        // 绘制蛇
-        snake.forEach((s, i) => {
-            let drawX = s.x;
-            let drawY = s.y;
-
-            // 如果是蛇头或者蛇身的第一节，并且正在移动中，就进行插值（平滑滑动效果）
-            if (i === 0) {
-                // 蛇头根据进度往前滑
-                drawX += dir.x * progress;
-                drawY += dir.y * progress;
-            } else if (i === snake.length - 1) {
-                // 蛇尾巴稍微缩短一点，模拟收缩
-                drawX += dir.x * progress * 0.5;
-                drawY += dir.y * progress * 0.5;
-            } else {
-                // 其他身体部分保持原位（圆角连接）
-                drawX += dir.x * progress * 0.1;
-                drawY += dir.y * progress * 0.1;
-            }
-
-            // 添加一点渐变颜色
-            ctx.fillStyle = i === 0 ? '#4cc9f0' : '#2a9d8f';
-            
-            // 绘制带圆角的方块，看起来更像真蛇
-            const size = CELL - 2;
-            const x = drawX * CELL + 1;
-            const y = drawY * CELL + 1;
-            
-            ctx.beginPath();
-            ctx.roundRect(x, y, size, size, i === 0 ? 8 : 4);
-            ctx.fill();
+        // 画动物
+        ctx.font = '40px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        gameData.animals.forEach(a => {
+            ctx.fillText(a.emoji, a.x, a.y);
         });
 
-        if (gameOver) {
-            ctx.fillStyle = 'rgba(0,0,0,0.6)';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-            ctx.fillStyle = '#fff';
-            ctx.font = 'bold 24px Arial';
-            ctx.textAlign = 'center';
-            ctx.fillText('游戏结束', canvas.width/2, canvas.height/2);
+        // 画垃圾
+        ctx.font = '30px Arial';
+        gameData.trash.forEach(t => {
+            ctx.fillText(t.emoji, t.x, t.y);
+        });
+
+        // 画飘字
+        ctx.font = 'bold 20px Arial';
+        for (let i = gameData.floatTexts.length - 1; i >= 0; i--) {
+            let f = gameData.floatTexts[i];
+            ctx.fillStyle = f.color;
+            ctx.globalAlpha = f.alpha;
+            ctx.fillText(f.text, f.x, f.y);
+            
+            // 动画更新
+            f.y += f.vy;
+            f.alpha -= 0.02;
+            
+            // 移除透明文字
+            if (f.alpha <= 0) gameData.floatTexts.splice(i, 1);
         }
+        ctx.globalAlpha = 1.0;
+
+        requestAnimationFrame(draw);
     }
 
-    // 滑动控制（灵敏度调高了）
-    let touchX = 0, touchY = 0;
-    canvas.addEventListener('touchstart', e => {
-        const t = e.touches[0];
-        touchX = t.clientX;
-        touchY = t.clientY;
-    }, {passive: true});
-
-    canvas.addEventListener('touchmove', e => {
-        e.preventDefault();
-        const t = e.touches[0];
-        const dx = t.clientX - touchX;
-        const dy = t.clientY - touchY;
-        // 把 10 改成了 5，滑动更灵敏
-        if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
-
-        if (Math.abs(dx) > Math.abs(dy)) {
-            setDir(dx > 0 ? 1 : -1, 0);
-        } else {
-            setDir(0, dy > 0 ? 1 : -1);
-        }
-        touchX = t.clientX;
-        touchY = t.clientY;
-    }, {passive: false});
-
-    init();
+    updateCoins();
+    draw();
 </script>
 </body>
 </html>
