@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>贪吃蛇</title>
+    <title>贪吃蛇 - 丝滑版</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; touch-action: none; }
         body {
@@ -16,6 +16,8 @@
         canvas {
             background: #0c0c1a; border: 2px solid #4cc9f0; border-radius: 8px;
             display: block; width: 92vw; max-width: 420px; height: auto;
+            /* 增加阴影让画面有立体感 */
+            box-shadow: 0 0 20px rgba(76, 201, 240, 0.2);
         }
         .controls {
             display: grid; grid-template-columns: 60px 60px 60px;
@@ -44,16 +46,21 @@
         <button class="down"  onclick="setDir(0,1)">▼</button>
         <button class="right" onclick="setDir(1,0)">▶</button>
     </div>
-    <div class="hint">也可以直接在屏幕上滑动控制方向</div>
+    <div class="hint">滑动屏幕控制方向</div>
 
 <script>
     const canvas = document.getElementById('game');
     const ctx = canvas.getContext('2d');
     const scoreEl = document.getElementById('score');
 
-    const GRID = 20;
+    const GRID = 20; 
     const CELL = canvas.width / GRID;
-    let snake, food, dir, nextDir, score, gameOver, timer;
+    
+    // 游戏状态变量
+    let snake, food, dir, nextDir, score, gameOver;
+    let lastMoveTime = 0;
+    const MOVE_INTERVAL = 120; // 蛇移动一格所需的时间(毫秒)，越小越快
+    let progress = 0; // 用于计算平滑移动的进度
 
     function init() {
         snake = [{x: 10, y: 10}, {x: 9, y: 10}, {x: 8, y: 10}];
@@ -63,9 +70,9 @@
         gameOver = false;
         scoreEl.textContent = '0';
         placeFood();
-        clearInterval(timer);
-        timer = setInterval(tick, 150);
-        draw();
+        lastMoveTime = performance.now();
+        progress = 0;
+        requestAnimationFrame(gameLoop);
     }
 
     function placeFood() {
@@ -80,23 +87,24 @@
     }
 
     function setDir(x, y) {
+        // 防止原地掉头
         if (x === -dir.x && y === -dir.y) return;
         nextDir = {x, y};
     }
 
-    function tick() {
+    function update() {
         if (gameOver) return;
+        
         dir = nextDir;
         const head = {x: snake[0].x + dir.x, y: snake[0].y + dir.y};
 
+        // 碰撞检测
         if (
             head.x < 0 || head.x >= GRID ||
             head.y < 0 || head.y >= GRID ||
             snake.some(s => s.x === head.x && s.y === head.y)
         ) {
             gameOver = true;
-            clearInterval(timer);
-            draw();
             setTimeout(() => {
                 alert('游戏结束！得分：' + score);
                 init();
@@ -113,22 +121,74 @@
         } else {
             snake.pop();
         }
+    }
+
+    // 核心渲染循环：这就是实现丝滑的关键
+    function gameLoop(currentTime) {
+        if (!gameOver) {
+            // 计算距离上次移动过去了多少时间
+            const elapsed = currentTime - lastMoveTime;
+            // 计算进度（0 到 1 之间）
+            progress = Math.min(elapsed / MOVE_INTERVAL, 1);
+
+            // 如果时间到了，就更新数据（蛇往前走一格）
+            if (progress >= 1) {
+                update();
+                lastMoveTime = currentTime;
+                progress = 0;
+            }
+        }
 
         draw();
+        
+        // 只要没结束，就一直以每秒60帧的速率重绘
+        if (!gameOver) {
+            requestAnimationFrame(gameLoop);
+        }
     }
 
     function draw() {
         ctx.fillStyle = '#0c0c1a';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
+        // 绘制食物（带一点呼吸动画）
+        const scale = 1 + Math.sin(Date.now() / 200) * 0.1;
         ctx.fillStyle = '#e94560';
         ctx.beginPath();
-        ctx.arc(food.x * CELL + CELL/2, food.y * CELL + CELL/2, CELL/2 - 2, 0, Math.PI * 2);
+        ctx.arc(food.x * CELL + CELL/2, food.y * CELL + CELL/2, (CELL/2 - 2) * scale, 0, Math.PI * 2);
         ctx.fill();
 
+        // 绘制蛇
         snake.forEach((s, i) => {
+            let drawX = s.x;
+            let drawY = s.y;
+
+            // 如果是蛇头或者蛇身的第一节，并且正在移动中，就进行插值（平滑滑动效果）
+            if (i === 0) {
+                // 蛇头根据进度往前滑
+                drawX += dir.x * progress;
+                drawY += dir.y * progress;
+            } else if (i === snake.length - 1) {
+                // 蛇尾巴稍微缩短一点，模拟收缩
+                drawX += dir.x * progress * 0.5;
+                drawY += dir.y * progress * 0.5;
+            } else {
+                // 其他身体部分保持原位（圆角连接）
+                drawX += dir.x * progress * 0.1;
+                drawY += dir.y * progress * 0.1;
+            }
+
+            // 添加一点渐变颜色
             ctx.fillStyle = i === 0 ? '#4cc9f0' : '#2a9d8f';
-            ctx.fillRect(s.x * CELL + 1, s.y * CELL + 1, CELL - 2, CELL - 2);
+            
+            // 绘制带圆角的方块，看起来更像真蛇
+            const size = CELL - 2;
+            const x = drawX * CELL + 1;
+            const y = drawY * CELL + 1;
+            
+            ctx.beginPath();
+            ctx.roundRect(x, y, size, size, i === 0 ? 8 : 4);
+            ctx.fill();
         });
 
         if (gameOver) {
@@ -141,6 +201,7 @@
         }
     }
 
+    // 滑动控制（灵敏度调高了）
     let touchX = 0, touchY = 0;
     canvas.addEventListener('touchstart', e => {
         const t = e.touches[0];
@@ -153,7 +214,8 @@
         const t = e.touches[0];
         const dx = t.clientX - touchX;
         const dy = t.clientY - touchY;
-        if (Math.abs(dx) < 20 && Math.abs(dy) < 20) return;
+        // 把 10 改成了 5，滑动更灵敏
+        if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
 
         if (Math.abs(dx) > Math.abs(dy)) {
             setDir(dx > 0 ? 1 : -1, 0);
